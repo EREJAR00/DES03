@@ -268,7 +268,7 @@ void FuncionReglas (int valores[5], boolean estadoToldo[4]){ //Nuestro toldo fun
      proteccion = true;
      FuncionLCD(130);
   }
-  else if (valores [1] >= lluviaAlto) { 
+  else if (valores [1] <= lluviaAlto) { 
     estadoToldo[0] = false;
     estadoToldo[3] = false;
     proteccion = true;
@@ -317,9 +317,9 @@ void FuncionReglas (int valores[5], boolean estadoToldo[4]){ //Nuestro toldo fun
         else
           i = i - 1;     
 
-        if (valores[3] >= 2000)
+        if (valores[3] <= 100)
           i = i + valorApertura;
-        else if (valores[3] >= 2000)
+        else if (valores[3] <= 300)
           i = i +1;
         else
           i = i - 1;
