@@ -218,13 +218,9 @@ void FuncionLCD (int textoRotativo){     //Función de impresión en la LCD
         lcd.print(" C");
         break;  
       case 120:
-        //lcd.print("  Humedad:");
-        //lcd.print(valores[6]);
-        //lcd.print(" %  ");
-        
-        lcd.print("Mi Polla");
-        lcd.print(digitalRead(EPosicion));
-        break;
+        lcd.print("  Humedad:");
+        lcd.print(valores[6]);
+        lcd.print(" %  ");;
       case 130:
         lcd.print("Toldo Bloqueado ");
         break;
