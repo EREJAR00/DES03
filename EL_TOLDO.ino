@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 //------Toldos Almeida S.L.---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-//------Versión 1.0.1---18/01/2020--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//------Versión 1.1.0---22/01/2020--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 //------Autores: Víctor Canseo Pacual, Edgardo Juan Rejas Ramos, Adolfo Trincado Rodriguez------------------------------------------------------------------------------------------------------------------------
 //------Todos los derechos reservados-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -19,7 +19,7 @@
 #include <LiquidCrystal_I2C.h>          //Librería de control del display.
 #include <DHT.h>                        //Librería de control de sensor de Ta y Humedad.
                                         //Definimos Entradas.
-const int EViento           = A0;       //Tag de Control 0.
+const int EViento           = A3;       //Tag de Control 3.
 const int ELluvia           = A1;       //Tag de Control 1.
 const int EUV               = A6;       //Tag de Control 6.
 const int ELuz              = A7;       //Tag de Control 7.
@@ -36,11 +36,11 @@ const int ledAutomatico     = 10;
 const int SMotor1           = 5;                      //Definimos Salidas, donde hay que determinar si 1 abre o si cierra.
 const int SMotor2           = 4;
                                                       //Definimos las variables globales.
-const int tiempoCriticas    = 750;                    //Tiempo del timer de lectura de las variables críticas.                                                      
-const int tiempoNoCriticas  = 4;                      //Tiempo del timer de lectura de las variables no críticas.
-const int tiempoControl     = 10;                     //Número de lecturas de control de las variables.
-const int tiempoPosicion    = 1500;                   //Tiempo de espera entre pulsaciones de botón funcionales.
-const int tiempoApertura    = 1500;
+const int tiempoCriticas    = 0;                    //Tiempo del timer de lectura de las variables críticas.  
+const int tiempoNoCriticas  = 0;                      //Tiempo del timer de lectura de las variables no críticas.
+const int tiempoControl     = 15;                     //Número de lecturas de control de las variables.
+const int tiempoPosicion    = 15;                   //Tiempo de espera entre pulsaciones de botón funcionales.
+const int tiempoApertura    = 10;
 boolean estadoToldo[4]      = {false, false, false};  //[Posición (abierto es true) en modo manual, automático o manual (automático es true) [Se establece así ya que true equivale a un uno lógico],
                                                       //Si el toldo está abierto o cerrado (abierto es true), Posición (abierto es true) en modo automatico]
 
@@ -52,10 +52,11 @@ boolean proteccion          = false;                  //Indicador de si el toldo
 boolean bloqueoCierre       = false;                  //Encargada de bloquear las opciones de poner el toldo en modo apertura mientras se hace el proceso de cierre, por falta de segundo fin de carrera.
 boolean bloqueoLCD          = false;                  //Sirve para los casos en los que se da más de una emergencia, solo presentando una de ellas. La emergencia que presenta, en caso de que se presenten varias,
                                                       //viene definida arbitrariamente por el código y decidida sin ningún criterio particular.
+boolean acabadoCierre       = false;
 
 
                                                       //Definimos vectores que han de ser inicializados pero no pueden serlo en cada bucle, o perderíamos información.
-int valores[7]              = {0, 0, 0, 0, 0, 0, 0};  //Viento, Lluvia, UV, Luz, Humidex, temepratura, humedad.
+int valores[7]              = {0, 1000, 0, 0, 0, 0, 0};  //Viento, Lluvia, UV, Luz, Humidex, temepratura, humedad.
 int resViento[3]            = {0, 0, tiempoControl};  //Todos los vectores res tienen el esquema (Valor acumulado y posteriormente valor de la media, 1 si se ha acabado el cálculo de la media).
 int resLluvia[3]            = {0, 0, tiempoControl};
 int resUV[3]                = {0, 0, tiempoControl};
@@ -66,7 +67,7 @@ int timerPrecipitaciones    = 0;                        //Timer para considerar 
 int timerPosicion           = 0;                        //Bloqueo del cambió de posición para evitar pulsaciones fantasma.
 int timerAutomatico         = 0;                        //Bloqueo del cambió de modo de funcionamiento para evitar pulsaciones fantasma.
 int timerTexto              = 0;                        //Timer para que los textos cíclicos (temperatura y humedad) se presenten correctamente.
-int timerApertura           = 0;                        //Timer para la apertura del toldo, debido que no disponemos de un segundo final de carrera por la forma del prototipo.
+int timerApertura           = tiempoApertura;           //Timer para la apertura del toldo, debido que no disponemos de un segundo final de carrera por la forma del prototipo.
 int timerNoCriticas         = 0;                        //Timer de lectura de las variables no críticas.
 int timerCriticas           = 0;                        //Timer de lectura de las variables críticas.
 
@@ -83,6 +84,8 @@ void STOP(){
 }
 
 void setup() {
+  Serial.begin(9600);
+  attachInterrupt(digitalPinToInterrupt(EStopEmergencia),STOP,RISING);
   pinMode(EViento, INPUT);            //Configuramos Entradas y Salidas.
   pinMode(ELluvia, INPUT);
   pinMode(EUV, INPUT);
@@ -99,13 +102,19 @@ void setup() {
   dht.begin();                        //Iniciamos el sensor de Ta y Humedad y la LCD.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
   lcd.begin();
   lcd.backlight();
-  int finCarrera=digitalRead(EFinCarrera);
-  while (EFinCarrera == 1){           //Cerramos el toldo en caso de que se hubiese quedado abierto por algún problema.
-    bloqueoCierre == true;
+  Break:
+  while (digitalRead(EFinCarrera) == 1 && funcionando == true){           //Cerramos el toldo en caso de que se hubiese quedado abierto por algún problema.
+    lcd.setCursor(0,0);
+    lcd.print("Toldos Almeida ");
+    lcd.setCursor(0,1);
+    lcd.print("Iniciando Toldo ");
     digitalWrite(SMotor1,HIGH);
     digitalWrite(SMotor2,LOW);
-    if (finCarrera == 0){
-        digitalWrite(SMotor1, LOW);           //En el caso del cierre, no se establece que el toldo se encuentra cerrado hasta que se completa el mismo. 
+    if (!funcionando)   //Parada de emergencia
+        goto Break;
+    if (digitalRead(EFinCarrera) == 0){
+        digitalWrite(SMotor1, LOW);           //En el caso del cierre, no se establece que el toldo se encuentra cerrado hasta que se completa el mismo.
+        digitalWrite(SMotor2,LOW);
         estadoToldo[0] = false;               //Esto se debe a que la apertura se realiza mediante tiempo de reloj y no usa un fin de carrera por falta de recursos.
         estadoToldo[3] = false;
         estadoToldo[2] = false;
@@ -191,8 +200,6 @@ void FuncionControl(int resVariable[2], int tagVariable){     //Aquí operamos l
         
      case 3: //Temperatura y humedad
       resHumedad[1] = 0;
-      valores[5] = resVariable[0];        //Se guardan los valores de temperatura y humedad para la LCD
-      valores[6] = resHumedad[0];
       float dewpoint = 273.1 +(resVariable[0] - ((100 - resHumedad[0])/5)); //"Td = 273.1 + T - ((100 - RH)/5.)" where Td is dew point temperature (in Kelvin), T is observed temperature (in degrees Celsius),
                                                                             //and RH is relative humidity (in percent). Apparently this relationship is fairly accurate for relative humidity values above 50%. 
       float e =  6.11 * exp (5417.7530 * ( (1/273.16) - (1/dewpoint) ) );   //e = vapour pressure in hPa (mbar), given by: e = 6.11 * exp [5417.7530 * ( (1/273.16) - (1/dewpoint) ) ],
@@ -220,7 +227,8 @@ void FuncionLCD (int textoRotativo){     //Función de impresión en la LCD
       case 120:
         lcd.print("  Humedad:");
         lcd.print(valores[6]);
-        lcd.print(" %  ");;
+        lcd.print(" %  ");
+        break;
       case 130:
         lcd.print("Toldo Bloqueado ");
         break;
@@ -256,10 +264,10 @@ void FuncionLCD (int textoRotativo){     //Función de impresión en la LCD
    
 }
 
-void FuncionReglas (int valores[5], boolean estadoToldo[4]){ //Nuestro toldo funciona por una programación mediante reglas. Para ello se crean una serie de funciones if que funcionan como reglas de activación.
+void FuncionReglas (int valores[7], boolean estadoToldo[4]){ //Nuestro toldo funciona por una programación mediante reglas. Para ello se crean una serie de funciones if que funcionan como reglas de activación.
   
-  int vientoAlto = 200;        //Valor del motor para más de 26Km/h, continuado
-  int lluviaAlto = 350;        //Valor de tormenta > 10mm/h
+  int vientoAlto = 70;        //Valor del motor para más de 26Km/h, continuado
+  int lluviaAlto = 0;         //Valor de tormenta > 10mm/h
 
 
   if (valores[0] >= vientoAlto){          //Estos son los valores de protección                    
@@ -268,94 +276,91 @@ void FuncionReglas (int valores[5], boolean estadoToldo[4]){ //Nuestro toldo fun
      proteccion = true;
      FuncionLCD(130);
   }
-  else if (valores [1] <= lluviaAlto) { 
-    estadoToldo[0] = false;
-    estadoToldo[3] = false;
-    proteccion = true;
-    FuncionLCD(130);
-  }
+  //else if (valores [1] <= lluviaAlto) { 
+  //  estadoToldo[0] = false;
+  //  estadoToldo[3] = false;
+  //  proteccion = true;
+  //  FuncionLCD(130);
+  //}
   else 
     proteccion = false;
 
 
   if (proteccion == 0){
-    
-    switch (estadoToldo[1]){
-      case false: 
-        int posicion = digitalRead(EPosicion);
-        if (posicion == 1 && estadoToldo[0] == false && timerPosicion <= 0 && bloqueoCierre == false) {   //apertura
-          estadoToldo[0] = true;
-          timerPosicion = tiempoPosicion;
-        }
-        if (posicion == 1 && estadoToldo[0] == true && timerPosicion <= 0) {    //cierre
-          estadoToldo[0] = false;
-          timerPosicion = tiempoPosicion;
-        }
-        else {
-          timerPosicion = timerPosicion - 1;
-          if (timerPosicion < -254)
-            timerPosicion = -5;
-        } 
-      break;
-
-      case true:
-        int valorApertura = 5 + 1;  //Es el número de reglas creadas más 1. Está para que si todas las condiciones consideran que deberia estar cerrado
-                                    //y estan en nivel de cerrar el toldo pero una lo necesita abrir, que se abra.
+    Serial.println("False");
+    if(estadoToldo[1] == false){
+          int posicion = digitalRead(EPosicion);
+          if (posicion == 1 && estadoToldo[0] == false && timerPosicion <= 0 && bloqueoCierre == false) {   //apertura
+            estadoToldo[0] = true;
+            timerPosicion = tiempoPosicion;
+          }
+          if (posicion == 1 && estadoToldo[0] == true && timerPosicion <= 0) {    //cierre
+            estadoToldo[0] = false;
+            timerPosicion = tiempoPosicion;
+          }
+          else {
+            timerPosicion = timerPosicion - 1;
+            if (timerPosicion < -254)
+              timerPosicion = -5;
+          } 
+    }
+    Serial.println("True");
+    if (estadoToldo[1] == true){
+        Serial.println("Entro");
+        int valorApertura = 3 + 1;  //Es el número de reglas creadas más 1. Está para que si todas las condiciones consideran que deberia estar cerrado y estan en nivel de cerrar el toldo pero una lo necesita abrir, que se abra.
         int i = 0;                  //Si este valor da más de cero, entonces el toldo se abre; menos de cero lo cierra. Se usa para no cerrar el toldo mientras se estudian todas las posibilidades
-        
         if (valores[2] >= 6)        //Reglas para los valores ultravioleta
           i = i + valorApertura;
         else if (valores[2] >= 3)
           i = i + 1;
         else
-          i = i - 1;
-          
+          i = i - 1;       
         if (valores[4] >= 30)     //Reglas para el valor Humidex (híbrido de Ta y Humedad)
           i = i + valorApertura; 
         else if (valores[4] >= 26)
           i = i + 1;
         else
           i = i - 1;     
-
-        if (valores[3] <= 100)
+        if (valores[3] >= 300)
           i = i + valorApertura;
-        else if (valores[3] <= 300)
-          i = i +1;
+        else if (valores[3] >= 100)
+          i = i + 1;
         else
-          i = i - 1;
-
-
+          i = i - 1000; //Debería ser -1 pero se pone -1000 para poder hacer una demostración en la presentación
+        Serial.println(i);
         if (i > 0)              //Mandamos si el toldo tiene que estar abierto o cerrado en modo automático
           estadoToldo[3] = true;
-        else if (i < 0)
-          estadoToldo[3] = false;
-          
-      break;
+        if (i < 0)
+          estadoToldo[3] = false;         
     }
   } 
 }
 
 void FuncionMotor(){
-  
-  int finCarrera = digitalRead(EFinCarrera);    //Cierre
-  if ((estadoToldo[0] == false && proteccion == false && estadoToldo[2] == true && estadoToldo[1] == false) || (estadoToldo[2] == true || proteccion == true) || (estadoToldo[3] == false && proteccion == false && estadoToldo[2] == true && estadoToldo[1] == true)){     
+  if ((estadoToldo[0] == false && proteccion == false && digitalRead(EFinCarrera) == 1 && estadoToldo[1] == false && estadoToldo[2] == true) || (digitalRead(EFinCarrera) == 1 && proteccion == true) || (estadoToldo[3] == false && proteccion == false && digitalRead(EFinCarrera) == 1 && estadoToldo[1] == true && estadoToldo[2] == true) || (acabadoCierre == true)){     
       bloqueoCierre = true;
+      acabadoCierre = true;
+      bloqueoLCD = true;
       digitalWrite(SMotor1, HIGH);
       digitalWrite(SMotor2, LOW);
+      estadoToldo[2] = true;
       if (proteccion == false)
         FuncionLCD(180);
-      if (finCarrera == 0){
+      if (digitalRead(EFinCarrera) == 0){
+        digitalWrite(SMotor2, LOW);
         digitalWrite(SMotor1, LOW);           //En el caso del cierre, no se establece que el toldo se encuentra cerrado hasta que se completa el mismo.
-        estadoToldo[2] = false;               //Esto se debe a que la apertura se realiza mediante tiempo de reloj y no usa un fin de carrera por falta de recursos
-        estadoToldo[0] = false;
+        estadoToldo[0] = false;              //Esto se debe a que la apertura se realiza mediante tiempo de reloj y no usa un fin de carrera por falta de recursos
         estadoToldo[3] = false;
+        estadoToldo[2] = false;
         bloqueoCierre = false;
+        bloqueoLCD = false;
+        acabadoCierre = false;
         timerApertura = tiempoApertura;       //El timer de apertura del toldo solo se reinicia en caso de 
       }
-  }
-        //Apertura
-  if ((estadoToldo[0] == true && proteccion == false && bloqueoCierre == false && estadoToldo[1] == false) || (estadoToldo[3] == true && proteccion == false  && bloqueoCierre == false && estadoToldo[1] == false)){     
+  } //Apertura
+    else if ((estadoToldo[0] == true && proteccion == false && bloqueoCierre == false && estadoToldo[1] == false) || (estadoToldo[3] == true && proteccion == false  && bloqueoCierre == false && estadoToldo[1] == true)){     
       timerApertura = timerApertura - 1;
+      bloqueoLCD = true;
       digitalWrite(SMotor1, LOW);
       digitalWrite(SMotor2, HIGH);
       estadoToldo[0] = true;
@@ -363,16 +368,22 @@ void FuncionMotor(){
       estadoToldo[2] = true;
       if (proteccion == false)
         FuncionLCD(190);
-      if (timerApertura <= 0)
+      if (timerApertura <= 0){
         digitalWrite(SMotor2, LOW);
+        bloqueoCierre = true;
+        bloqueoLCD = false;
+      }
   }
+   else
+    bloqueoLCD = false;
 }
 
 
 
 void loop() {
-
-  attachInterrupt(digitalPinToInterrupt(EStopEmergencia),STOP,CHANGE);              //Botón de emergencia. Tras leer un cambio se mueve directamente a este punto para hacer el cambio y luego sigue su camino.
+  Serial.println(proteccion);
+  
+                                                                                    //Botón de emergencia. Tras leer un cambio se mueve directamente a este punto para hacer el cambio y luego sigue su camino.
                                                                                     //Cuando está funcionando se han incluido posiciones de seguridad para evitar que se quede demasiado tiempo sin funcionar,
                                                                                     //y en cuestión de centésimas de segundo el circuito se redirige a esta posición,
   Break:                                                                            //cesando toda actividad por salirse del bucle de trabajo
@@ -389,7 +400,7 @@ void loop() {
     }
     else {
       timerAutomatico = timerAutomatico - 1;                                        //Control de que el timer no pase involuntariamente a valores positivos
-      if (timerAutomatico < -254)
+      if (timerAutomatico < -10000)
         timerAutomatico = -5; 
     }
     if (!funcionando)   //Parada de emergencia
@@ -400,7 +411,7 @@ void loop() {
       if (!funcionando)   //Parada de emergencia
         goto Break;
     }
-    else if (timerNoCriticas == 0) { 
+    else if (timerCriticas == 0) { 
       int valViento = 0;
       int tagViento = 0;
       int valHumedad = 0;
@@ -419,77 +430,70 @@ void loop() {
         FuncionControl(resLluvia, tagLluvia);
       if (!funcionando)
         goto Break;
+             
+        if (timerNoCriticas > 0){                //Timer para que las medidas  críticas tengan más espaciameinto temporal
+          timerNoCriticas = timerNoCriticas - 1;
+          if (!funcionando)   //Parada de emergencia
+            goto Break;
+        }
+        else if (timerNoCriticas == 0) {          //Medida variables no críticas
+              
+            int valUV = 0;
+            int tagUV = 6;
+            valUV = FuncionMedida(valUV, EUV, 0);
+            FuncionCalculo(valUV, resUV, tagUV, valHumedad);
+            if (resUV[1] == 1)
+              FuncionControl(resUV, tagUV);
+            if (!funcionando)   //Parada de emergencia
+              goto Break;
+          
+            int valLuz = 0;
+            int tagLuz = 7;
+            valLuz = FuncionMedida(valLuz, ELuz, 0);
+            FuncionCalculo(valLuz, resLuz, tagLuz, valHumedad);
+            if (resLuz[1] == 1)
+              FuncionControl(resLuz, tagLuz);
+            if (!funcionando)   //Parada de emergencia
+              goto Break;
       
-      
-      if (timerNoCriticas > 0){                //Timer para que las medidas  críticas tengan más espaciameinto temporal
-        timerNoCriticas = timerNoCriticas - 1;
-        if (!funcionando)   //Parada de emergencia
-          goto Break;
-      }
-      else if (timerNoCriticas == 0) {          //Medida variables no críticas
-            
-          int valUV = 0;
-          int tagUV = 6;
-          valUV = FuncionMedida(valUV, EUV, 0);
-          FuncionCalculo(valUV, resUV, tagUV, valHumedad);
-          if (resUV[1] == 1)
-            FuncionControl(resUV, tagUV);
-          if (!funcionando)   //Parada de emergencia
-            goto Break;
-        
-          int valLuz = 0;
-          int tagLuz = 7;
-          valLuz = FuncionMedida(valLuz, ELuz, 0);
-          FuncionCalculo(valLuz, resLuz, tagLuz, valHumedad);
-          if (resLuz[1] == 1)
-            FuncionControl(resLuz, tagLuz);
-          if (!funcionando)   //Parada de emergencia
-            goto Break;
-    
-          int valTemperatura = 0;
-          valHumedad = 0;
-          int tagTemperatura = 3;
-          valTemperatura = FuncionMedida(valTemperatura, ETemperatura, 1);
-          valHumedad = FuncionMedida(valHumedad, ETemperatura, 2);
-          FuncionCalculo(valTemperatura, resTemperatura, tagTemperatura, valHumedad);
-          if ( resTemperatura[1] == 1 && resHumedad[1] == 1) 
-            FuncionControl(resTemperatura, tagTemperatura);
-          if (!funcionando)   //Parada de emergencia
-            goto Break;
-                
-          timerNoCriticas = tiempoNoCriticas;       //Reiniciamos el timer
-          }
+            int valTemperatura = 0;
+            valHumedad = 0;
+            int tagTemperatura = 3;
+            valTemperatura = FuncionMedida(valTemperatura, ETemperatura, 1);
+            valHumedad = FuncionMedida(valHumedad, ETemperatura, 2);
+            valores[5] = valTemperatura;        //Se guardan los valores de temperatura y humedad para la LCD
+            valores[6] = valHumedad;
+            FuncionCalculo(valTemperatura, resTemperatura, tagTemperatura, valHumedad);
+            if ( resTemperatura[1] == 1 && resHumedad[1] == 1) 
+              FuncionControl(resTemperatura, tagTemperatura);
+            if (!funcionando)   //Parada de emergencia
+              goto Break;
+                  
+            timerNoCriticas = tiempoNoCriticas;       //Reiniciamos el timer
+            }
         timerCriticas = tiempoCriticas;
     }
-    else
-      lcd.println("ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_ERROR_");
-       
+    
     FuncionReglas(valores, estadoToldo);
     if (!funcionando)   //Parada de emergencia
       goto Break;
     
-    FuncionMotor;
+    FuncionMotor();
     if (!funcionando)   //Parada de emergencia
       goto Break;
-    
-    switch (timerTexto){    //Aquí definimos el texto cíclico que reproduce nuestra LCD. Funciona de tal manera que enseña un texto inicial de presentación y luego a intervalos los valores de Ta y Humedad.
-      case 0:
-        FuncionLCD(100);
-        break;
-      case 1500:
+    FuncionLCD(0);
+    if (timerTexto > 0 && timerTexto <= 75 && bloqueoLCD == false && proteccion == false)   //Aquí definimos el texto cíclico que reproduce nuestra LCD. Funciona de tal manera que enseña un texto inicial de presentación y luego a intervalos los valores de Ta y Humedad.
         FuncionLCD(110);
-        break;
-      case 3000:
+    if (timerTexto > 75 && timerTexto <= 150 && bloqueoLCD == false && proteccion == false)
         FuncionLCD(120);
-        break;
-    }
+    
     if (!funcionando)   //Parada de emergencia
       goto Break;
 
     timerTexto = timerTexto + 1;        //Al ponerlo a uno en el reinicio y no a cero forzamos que no pase por el caso 0 y no vuelva a mostrar el caso inicial
-    if (timerTexto > 3000) 
-        timerTexto = 1;
-  }
+    if (timerTexto > 150) 
+        timerTexto = 0;
+    }
   
   else{                                 //En caso de una emerjencia, el Loop solo reproducirá este trozo, donde se obliga a parar el motor, se colocan todos los leds encendidos como alarma,
     digitalWrite(SMotor1, LOW);         //y se reproduce un texto indicativo
